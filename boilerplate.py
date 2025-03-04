@@ -5,6 +5,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.utils.data import Dataset, DataLoader, random_split
+import matplotlib.pyplot as plt
 
 # Helper functions
 def compute_rgb_indices(rgb, eps=1e-6):
@@ -40,7 +41,6 @@ class NDVIDataset(Dataset):
         if rgb_bgr is None or nir_img is None:
             raise ValueError(f"Failed to load images for index {idx}")
         
-        # Resize to fixed size (256x256)
         rgb_bgr = cv2.resize(rgb_bgr, (self.image_size, self.image_size), interpolation=cv2.INTER_AREA)
         nir_img = cv2.resize(nir_img, (self.image_size, self.image_size), interpolation=cv2.INTER_AREA)
 
@@ -68,21 +68,6 @@ class NDVIDataset(Dataset):
 
         return torch.stack(patches), torch.stack(gt_patches)
 
-# CNN model
-class NDVICNN(nn.Module):
-    def __init__(self, in_channels):
-        super(NDVICNN, self).__init__()
-        self.conv1 = nn.Conv2d(in_channels, 32, kernel_size=3, stride=1, padding=1)
-        self.conv2 = nn.Conv2d(32, 64, kernel_size=3, stride=1, padding=1)
-        self.conv3 = nn.Conv2d(64, 1, kernel_size=3, stride=1, padding=1)
-        self.relu = nn.ReLU()
-    
-    def forward(self, x):
-        x = self.relu(self.conv1(x))
-        x = self.relu(self.conv2(x))
-        x = self.conv3(x)  # No activation to allow regression
-        return x
-
 # Patch stitching function
 def stitch_patches(patch_predictions, image_size=256, patch_size=64, stride=32):
     ndvi_full = np.zeros((image_size, image_size), dtype=np.float32)
@@ -95,8 +80,27 @@ def stitch_patches(patch_predictions, image_size=256, patch_size=64, stride=32):
             weight_matrix[i:i+patch_size, j:j+patch_size] += 1
             patch_idx += 1
     
-    ndvi_full /= np.maximum(weight_matrix, 1)  # Avoid division by zero
+    ndvi_full /= np.maximum(weight_matrix, 1)
     return ndvi_full
+
+# Function to evaluate model
+def test_model(model, test_dataset):
+    model.eval()
+    device = next(model.parameters()).device
+    reconstructed_ndvi_images = []
+    
+    with torch.no_grad():
+        for batch_patches, _ in test_dataset:
+            predictions = []
+            for patch in batch_patches:
+                patch = patch.unsqueeze(0).to(device)
+                pred_patch = model(patch).cpu().numpy().squeeze()
+                predictions.append(pred_patch)
+            
+            reconstructed_ndvi = stitch_patches(predictions, image_size=256, patch_size=64, stride=32)
+            reconstructed_ndvi_images.append(reconstructed_ndvi)
+
+    return reconstructed_ndvi_images
 
 # Training function
 def train_model(dataset_dir, num_epochs=4, batch_size=8, lr=1e-3):
@@ -106,8 +110,6 @@ def train_model(dataset_dir, num_epochs=4, batch_size=8, lr=1e-3):
     train_dataset, test_dataset = random_split(dataset, [train_size, test_size])
     
     train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=2)
-    test_dataloader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False, num_workers=2)
-    
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model = NDVICNN(in_channels=7).to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=lr)
@@ -129,22 +131,9 @@ def train_model(dataset_dir, num_epochs=4, batch_size=8, lr=1e-3):
             epoch_loss += batch_loss / len(batch_patches)
         print(f"Epoch {epoch+1}/{num_epochs}, Loss: {epoch_loss/len(train_dataset):.6f}")
     
-    return model
+    return model, test_dataset
 
-# Inference function to reconstruct NDVI image
-def predict_and_reconstruct(model, dataset):
-    model.eval()
-    predictions = []
-    with torch.no_grad():
-        for batch_patches, _ in dataset:
-            for patch in batch_patches:
-                patch = patch.unsqueeze(0).to(next(model.parameters()).device)
-                pred_patch = model(patch).cpu().numpy().squeeze()
-                predictions.append(pred_patch)
-    
-    return stitch_patches(predictions, image_size=256, patch_size=64, stride=32)
-
-# Run training
 if __name__ == "__main__":
-    dataset_dir = r"D:\\MRc\\FIIT\\DP_Model\\Datasets\\kazachstan_multispectral_UAV\\filght_session_02\\2022-06-09\\NNdataset"
-    trained_model = train_model(dataset_dir, num_epochs=4, batch_size=2, lr=1e-3)
+    dataset_dir = "your_dataset_path"
+    trained_model, test_dataset = train_model(dataset_dir, num_epochs=4, batch_size=2, lr=1e-3)
+    test_ndvi_images = test_model(trained_model, test_dataset)

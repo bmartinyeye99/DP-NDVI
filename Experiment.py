@@ -25,17 +25,27 @@ class Experiment:
         
         # Initialize model and trainer
         self.model = self._create_model()
-        self.trainer = Trainer(self.model, self.train_dataloader, self.val_dataloader, lr=self.lr)
-
-    def _prepare_data(self):
-        dataset = NDVIDataset(self.dataset_dir, self.image_size, self.patch_size, self.stride)
-        train_size = int(0.8 * len(dataset))
-        val_size = len(dataset) - train_size
-        train_dataset, val_dataset = random_split(dataset, [train_size, val_size])
+        self.trainer = Trainer(self.model, self, lr=self.lr)
         
-        self.train_dataloader = DataLoader(train_dataset, batch_size=self.batch_size, shuffle=True, num_workers=2)
-        self.val_dataloader = DataLoader(val_dataset, batch_size=self.batch_size, shuffle=False, num_workers=2)
-    
+    def _prepare_data(self):
+        # Load the full dataset
+        dataset = NDVIDataset(self.dataset_dir, self.image_size, self.patch_size, self.stride)
+        
+        # Split the dataset into training, validation, and test sets
+        train_size = int(0.7 * len(dataset))  # 70% for training
+        val_size = int(0.15 * len(dataset))   # 15% for validation
+        test_size = len(dataset) - train_size - val_size  # Remaining 15% for testing
+        
+        # Perform the split
+        self.train_dataset, self.val_dataset, self.test_dataset = random_split(
+            dataset, [train_size, val_size, test_size]
+        )
+        
+        # Create DataLoaders for each set
+        self.train_dataloader = DataLoader(self.train_dataset, batch_size=self.batch_size, shuffle=True, num_workers=2)
+        self.val_dataloader = DataLoader(self.val_dataset, batch_size=self.batch_size, shuffle=False, num_workers=2)
+        self.test_dataloader = DataLoader(self.test_dataset, batch_size=self.batch_size, shuffle=False, num_workers=2)
+
     def _create_model(self):
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         return NDVICNN(in_channels=7).to(device)
