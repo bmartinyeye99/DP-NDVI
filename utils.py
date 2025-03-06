@@ -50,7 +50,10 @@ def plot_regression(model, dataloader, image_size=256, patch_size=64, stride=32,
     plt.xlabel("Ground Truth NDVI")
     plt.ylabel("Predicted NDVI")
 
-
+    # The plot_regression function processes one batch from the validation DataLoader.
+    # It selects the first image in the batch (batch_patches[0] and batch_targets[0]).
+    # The patches for this image are stitched back into a full-size image, and the colormap
+    #     is generated for both the ground truth and predicted NDVI.
     # Colormap comparison
     plt.subplot(1, 2, 2)
     plt.imshow(gt_ndvi, cmap='RdYlGn', vmin=-1, vmax=1)

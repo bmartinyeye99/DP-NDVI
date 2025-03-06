@@ -35,9 +35,11 @@ class NDVICNN(nn.Module):
         self.conv2 = nn.Conv2d(32, 64, kernel_size=3, stride=1, padding=1)
         self.conv3 = nn.Conv2d(64, 1, kernel_size=3, stride=1, padding=1)
         self.relu = nn.ReLU()
-    
+        #  constrain the output
+        self.output_activation = nn.Tanh()
     def forward(self, x):
         x = self.relu(self.conv1(x))
         x = self.relu(self.conv2(x))
         x = self.conv3(x)
+        x = self.output_activation(x)
         return x
