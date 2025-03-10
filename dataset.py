@@ -24,7 +24,7 @@ def add_gaussian_noise(image, mean=0, std=0.1):
     """
     noise = np.random.normal(mean, std, image.shape)
     noisy_image = image + noise
-    return np.clip(noisy_image, 0, 1)  # Clip values to [0, 1] range
+    return np.clip(noisy_image, 0, 1) 
 
 
 # Dataset with Overlapping Patches
@@ -36,15 +36,20 @@ class NDVIDataset(Dataset):
         self.stride = stride
         self.augment = augment
         self.noise_std = noise_std  # Standard deviation for Gaussian noise
-        self.filenames = sorted(os.listdir(dataset_dir))
-        self.rgb_files = [f for f in self.filenames if f.lower().endswith('.jpg')]
-        self.nir_files = [f.replace('.JPG', '.TIF') for f in self.rgb_files]
+        self.filenames = os.listdir(dataset_dir)
+        self.rgb_files = sorted([f for f in self.filenames if f.lower().endswith('.jpg')])
+        self.nir_files = sorted([f for f in self.filenames if f.lower().endswith('.tif')])
+        # Ensure that RGB and NIR files are paired correctly
+        if len(self.rgb_files) != len(self.nir_files):
+            raise ValueError (f"Mismatch between the number of RGB and NIR files. RGB {len(self.rgb_files)}  NIR  {len(self.nir_files)} {dataset_dir}")
+
+        #self.nir_files = [f.replace('.JPG', '.TIF') for f in self.rgb_files]
             # Define augmentation transforms
         self.augment_transform = transforms.Compose([
                     transforms.RandomHorizontalFlip(),
                     transforms.RandomVerticalFlip(),
-                    transforms.RandomRotation(13),
-                    # transforms.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2),
+                    transforms.RandomRotation(20),
+                   # transforms.ColorJitter(brightness=0.1, contrast=0.15, saturation=0.1),
                 ])
 
     def __len__(self):
@@ -54,6 +59,11 @@ class NDVIDataset(Dataset):
         # Load and preprocess images
         rgb_path = os.path.join(self.dataset_dir, self.rgb_files[idx])
         nir_path = os.path.join(self.dataset_dir, self.nir_files[idx])
+
+        print(f"RGB file : {rgb_path} NIR file :{nir_path}")
+
+        if rgb_path.split('_')[0] != nir_path.split('_')[0]:
+            raise ValueError (f"Mismatch between scene images RGB {len(rgb_path)}  NIR  {len(nir_path)}")
 
         rgb_bgr = cv2.imread(rgb_path, cv2.IMREAD_COLOR)
         nir_img = cv2.imread(nir_path, cv2.IMREAD_GRAYSCALE)
@@ -68,23 +78,33 @@ class NDVIDataset(Dataset):
         rgb = cv2.cvtColor(rgb_bgr, cv2.COLOR_BGR2RGB).astype(np.float32) / 255.0
         nir = nir_img.astype(np.float32) / 255.0
 
-        # # Add Gaussian noise
-        # if self.noise_std > 0:
-        #     rgb = add_gaussian_noise(rgb, std=self.noise_std)
-        #     nir = add_gaussian_noise(nir, std=self.noise_std)
+        # Add Gaussian noise
+        if self.noise_std > 0:
+            rgb = add_gaussian_noise(rgb, std=self.noise_std)
+            nir = add_gaussian_noise(nir, std=self.noise_std)
 
         RGBindices = compute_rgb_indices(rgb)
         red = rgb[..., 0]
         gt_ndvi = compute_ndvi(nir, red) # ground truth ndvi matrix
+        for row in gt_ndvi:
+                for element in row:
+                    if element > 1 or element < -1:
+                        raise ValueError(f"Matrix contains an invalid value: {element}")
 
-        # Create input image of 7 chanels. RGB, NIR + NDVI + RGB indices
+
+        # Create input image of 8 chanels. RGB, NIR + NDVI + RGB indices
         input_img = np.concatenate([
         rgb,
-        nir[..., None],
+        # nir[..., None],
         RGBindices['NGRDI'][..., None],
+        RGBindices['MGRVI'][..., None],
         RGBindices['VARI'][..., None],
-        RGBindices['GLI'][..., None]
+        RGBindices['RGBVI'][..., None],
+        RGBindices['TGI'][..., None]
+
+
         ], axis=-1)
+
 
     #  Patching:  sliding a 64x64 window over the 256x256 image with a stride of 32. 
     #  Each window extracts a patch for training.

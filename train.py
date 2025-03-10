@@ -5,7 +5,9 @@ from utils import plot_regression
 import matplotlib.pyplot as plt
 import wandb
 import numpy as np
-from sklearn.metrics import mean_absolute_error,mean_squared_error
+from sklearn.metrics import mean_absolute_error,mean_squared_error,r2_score
+
+
 class Trainer:
     def __init__(self, model, datamodule, lr=1e-3):
         self.model = model
@@ -14,7 +16,9 @@ class Trainer:
         self.model.to(self.device)
         
         self.optimizer = optim.Adam(model.parameters(), lr=lr)
-        self.criterion = nn.MSELoss()
+        self.criterion = nn.L1Loss()
+        # self.criterion = nn.MSELoss()
+
         self.train_loss_history = []
         self.val_loss_history = []
         wandb.init(project="ndvi-prediction", config={"lr": lr})
@@ -30,6 +34,10 @@ class Trainer:
                     inputs, targets = inputs.to(self.device), targets.to(self.device)
                     self.optimizer.zero_grad()
                     outputs = self.model(inputs)
+                    if torch.any(outputs > 1) or torch.any(outputs < -1):
+                        invalid_values = outputs[(outputs > 1) | (outputs < -1)]
+                        raise ValueError(f"Outputs contains invalid values: {invalid_values}")
+
                     loss = self.criterion(outputs, targets)
                     loss.backward()
                     self.optimizer.step()
@@ -92,8 +100,9 @@ class Trainer:
             mse = mean_squared_error(gt_ndvi,pred_ndvi)
             mae = mean_absolute_error(gt_ndvi,pred_ndvi)
             # Calculate R-squared: handle case where variance is zero
-            variance = np.mean((gt_ndvi - np.mean(gt_ndvi)) ** 2)
-            r2 = 1 - (np.sum((gt_ndvi - pred_ndvi) ** 2) / variance) if variance != 0 else float('nan')
+            # variance = np.mean((gt_ndvi - np.mean(gt_ndvi)) ** 2)
+            # r2 = 1 - (np.sum((gt_ndvi - pred_ndvi) ** 2) / variance) if variance != 0 else float('nan')
+            r2 = r2_score(gt_ndvi, pred_ndvi)
             
             # Log additional metrics to wandb
             wandb.log({"val_mse": mse, "val_mae": mae, "val_r2": r2})

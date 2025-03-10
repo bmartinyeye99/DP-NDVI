@@ -34,7 +34,7 @@ class Experiment:
         
     def _create_model(self):
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        return NDVICNN(in_channels=7).to(device)
+        return NDVICNN(in_channels=8).to(device)
     
     def run(self):
         self.trainer.train(self.num_epochs)

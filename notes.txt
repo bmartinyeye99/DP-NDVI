@@ -7,7 +7,6 @@
         and the model's weights are updated (backward pass).
 
 
-
     What Happens During One Epoch?
 
     During one epoch, the following steps occur:
@@ -51,16 +50,25 @@
                 Metrics like validation loss, accuracy, or regression plots are logged (e.g., using wandb).
 
 
+    Batch 
+    
+    hyperparameter that defines the number of samples to work through before updating the internal model parameters.
+    Think of a batch as a for-loop iterating over one or more samples and making predictions. At the end of the batch,
+    the predictions are compared to the expected output variables and an error is calculated. 
+    From this error, the update algorithm is used to improve the model.
+
 
 # Training:
 
     #     The model is trained on the training data.
     #     The optimizer adjusts the model's weights to minimize the loss function.
+    Test loss is calculated after batch 
 
     # Validation:
     #     After each epoch, the model is evaluated on the validation data.
     #     Validation metrics (e.g., loss, regression plots) are used to monitor performance and detect overfitting.
-
+ validation is made after 1 epoch, also validation loss is calculated.
+ 
     # Testing:
     #     After training is complete, the model is evaluated on the test data.
     #     Test metrics provide an unbiased estimate of the model's performance on unseen data.

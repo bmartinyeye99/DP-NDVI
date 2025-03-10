@@ -74,7 +74,11 @@ def compute_rgb_indices(rgb, eps=1e-6):
     ngrdi = (G - R) / (G + R + eps)
     vari  = (G - R) / (G + R - B + eps)
     gli   = (2 * G - R - B) / (2 * G + R + B + eps)
-    return {'NGRDI': ngrdi, 'VARI': vari, 'GLI': gli}
+    rgbvi = (G**2 - R * B) / (G**2 + R * B + eps)
+    mgrvi = (G**2 - R**2) / (G**2 + R**2 + 1e-6)
+    tgi = (G - R) - 0.39 * (R - B)
+
+    return {'NGRDI': ngrdi, 'VARI': vari, 'GLI': gli, 'RGBVI': rgbvi, 'MGRVI' : mgrvi, "TGI": tgi}
 
 def compute_ndvi(nir, red, eps=1e-6):
     return (nir - red) / (nir + red + eps)
