@@ -2,32 +2,33 @@ import os
 import cv2
 import numpy as np
 import torch
-import torch.nn as nn
-import torch.nn.functional as F
+import torch.nn 
+import torch.nn.functional 
 from torch.utils.data import Dataset, DataLoader, random_split
 from utils import *
-from torchvision import transforms
+from PIL import Image
 import torchvision.transforms.functional as TF
-
+from torchvision import transforms
+from skimage.metrics import structural_similarity as ssim
 
 def add_gaussian_noise(image, mean=0, std=0.1):
-    """
-    Add Gaussian noise to an image.
-    
-    Args:
-        image: Input image (numpy array).
-        mean: Mean of the Gaussian distribution.
-        std: Standard deviation of the Gaussian distribution.
-    
-    Returns:
-        Noisy image.
-    """
     noise = np.random.normal(mean, std, image.shape)
     noisy_image = image + noise
     return np.clip(noisy_image, 0, 1) 
 
+def check_alignment(rgb_image, nir_image):
+    """
+    Checks if the RGB and NIR images are aligned using SSIM.
+    """
+    rgb_gray = cv2.cvtColor(rgb_image, cv2.COLOR_BGR2GRAY)
+    nir_gray = nir_image  # NIR is already grayscale
 
-# Dataset with Overlapping Patches
+    # Compute SSIM between the two images
+    score, _ = ssim(rgb_gray, nir_gray, full=True)
+    if score > 0.90:  # Threshold for alignment
+        return True
+    else: return False
+
 class NDVIDataset(Dataset):
     def __init__(self, dataset_dir, image_size=256, patch_size=64, stride=32,augment=True, noise_std=0.0):
         self.dataset_dir = dataset_dir
@@ -43,14 +44,13 @@ class NDVIDataset(Dataset):
         if len(self.rgb_files) != len(self.nir_files):
             raise ValueError (f"Mismatch between the number of RGB and NIR files. RGB {len(self.rgb_files)}  NIR  {len(self.nir_files)} {dataset_dir}")
 
-        #self.nir_files = [f.replace('.JPG', '.TIF') for f in self.rgb_files]
-            # Define augmentation transforms
-        self.augment_transform = transforms.Compose([
-                    transforms.RandomHorizontalFlip(),
-                    transforms.RandomVerticalFlip(),
-                    transforms.RandomRotation(20),
-                   # transforms.ColorJitter(brightness=0.1, contrast=0.15, saturation=0.1),
-                ])
+
+    # Initialize color jitter augmentation for RGB only.
+        if self.augment:
+            self.color_jitter = transforms.ColorJitter(
+                brightness=0.22, contrast=0.22, saturation=0.22, hue=0.45
+            )
+
 
     def __len__(self):
         return len(self.rgb_files)
@@ -67,6 +67,10 @@ class NDVIDataset(Dataset):
 
         rgb_bgr = cv2.imread(rgb_path, cv2.IMREAD_COLOR)
         nir_img = cv2.imread(nir_path, cv2.IMREAD_GRAYSCALE)
+
+        # if check_alignment(rgb_bgr,nir_img)!= True:
+        #     raise ValueError(f"iMAGES not aligned {idx}")
+
         if rgb_bgr is None or nir_img is None:
             raise ValueError(f"Failed to load images for index {idx}")
         
@@ -78,10 +82,17 @@ class NDVIDataset(Dataset):
         rgb = cv2.cvtColor(rgb_bgr, cv2.COLOR_BGR2RGB).astype(np.float32) / 255.0
         nir = nir_img.astype(np.float32) / 255.0
 
-        # Add Gaussian noise
-        if self.noise_std > 0:
-            rgb = add_gaussian_noise(rgb, std=self.noise_std)
-            nir = add_gaussian_noise(nir, std=self.noise_std)
+        # # Add Gaussian noise
+        # if self.noise_std > 0:
+        #     rgb = add_gaussian_noise(rgb, std=self.noise_std)
+        #     nir = add_gaussian_noise(nir, std=self.noise_std)
+        
+        # Apply color augmentation (only on the RGB image) if enabled.
+        if self.augment:
+            pil_rgb = Image.fromarray((rgb * 255).astype(np.uint8))
+            pil_rgb = self.color_jitter(pil_rgb)
+            rgb = np.array(pil_rgb).astype(np.float32) / 255.0
+
 
         RGBindices = compute_rgb_indices(rgb)
         red = rgb[..., 0]
@@ -122,6 +133,7 @@ class NDVIDataset(Dataset):
         gt_ndvi_tensor = torch.from_numpy(gt_ndvi).unsqueeze(0).float()              
 
         # Apply augmentation to both input and ground truth
+        # Apply geometric augmentation to both input and target.
         if self.augment:
             if np.random.rand() > 0.5:
                 input_img_tensor = TF.hflip(input_img_tensor)
@@ -133,11 +145,8 @@ class NDVIDataset(Dataset):
             input_img_tensor = TF.rotate(input_img_tensor, angle)
             gt_ndvi_tensor = TF.rotate(gt_ndvi_tensor, angle)
 
-
         input_img_aug = input_img_tensor.numpy().transpose(1, 2, 0)  # Shape: [H, W, 7]
         gt_ndvi_aug = gt_ndvi_tensor.numpy()[0, :, :]                   # Shape: [H, W]
-
-
 
         # Extract patches from the augmented images
         patches = []
@@ -157,12 +166,12 @@ class NDVIDataset(Dataset):
     
 class DataModule:
     def __init__(self, dataset_dir, image_size=256, patch_size=64, stride=32, batch_size=8, noise_std=0.0):
-        # self.dataset_dir = dataset_dir
-        # self.image_size = image_size
-        # self.patch_size = patch_size
-        # self.stride = stride
+        self.dataset_dir = dataset_dir
+        self.image_size = image_size
+        self.patch_size = patch_size
+        self.stride = stride
         self.batch_size = batch_size
-        # self.noise_std = noise_std
+        self.noise_std = noise_std
 
         # Load the full dataset
         self.dataset = NDVIDataset(

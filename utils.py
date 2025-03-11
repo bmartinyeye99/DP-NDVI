@@ -6,7 +6,7 @@ from torch.utils.data import Dataset, DataLoader, random_split
 import matplotlib.pyplot as plt
 import seaborn as sns
 
-def plot_regression(model, dataloader, image_size=256, patch_size=64, stride=32, epoch=None):
+def plot_regression(model, dataloader, image_size=128, patch_size=32, stride=16, epoch=None):
     """
     Args:
         model: The trained model.

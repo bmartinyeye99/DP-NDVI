@@ -3,6 +3,31 @@ import cv2
 from PIL import Image
 import os
 import numpy as np
+from numpy import asarray
+from skimage.metrics import structural_similarity as ssim
+
+output_directory = r'D:\MRc\FIIT\DP_Model\pix2pixWin\dataset2'
+
+def check_alignment(rgb_image, nir_image):
+    """
+    Checks if the RGB and NIR images are aligned using SSIM.
+    """
+    # Convert RGB image to grayscale
+    rgb_gray = cv2.cvtColor(rgb_image, cv2.COLOR_BGR2GRAY)
+    
+    # Resize NIR image to match RGB image dimensions
+    height, width = rgb_gray.shape[:2]
+    nir_resized = cv2.resize(nir_image, (width, height), interpolation=cv2.INTER_LINEAR)
+    
+    try:
+        score, _ = ssim(rgb_gray, nir_resized, full=True)
+    except :
+        print("Can't be divided by zero!")
+        return False
+
+    if score > 100:
+        return True  # Threshold for alignment
+
 
 # Get the number of existing scenes in the output directories
 def count_existing_scenes(output_dir):
@@ -121,10 +146,10 @@ def downsample_images(images, target_size=(256, 256)):
 
 
 
-def copy_to_target_dir():
-    target_directory = 'D:\MRc\FIIT\DP_Model\pix2pixWin\dataset'
+def copy_multispectral_potato_images_to_target_dir():
+    output_directory = 'D:\MRc\FIIT\DP_Model\pix2pixWin\dataset'
     base_directory = r'D:\MRc\FIIT\DP_Model\Datasets\Multispectral_images_dataset'
-    num_scenes_in_dir = count_existing_scenes(target_directory)
+    num_scenes_in_dir = count_existing_scenes(output_directory)
 
     rgb_folder = os.path.join(base_directory, "RGB_Images", "Train_Images")
     nir_folder = os.path.join(base_directory, "Spectral_Images", "Near_Infrared_Channel", "Train_Images")
@@ -161,8 +186,8 @@ def copy_to_target_dir():
             'nir': nir_img
         })
         
-        new_jpg_path = os.path.join(target_directory, f'{num_scenes_in_dir}_Scene_RGB.jpg')
-        new_nir_path = os.path.join(target_directory, f'{num_scenes_in_dir}_Scene_NIR.TIF')
+        new_jpg_path = os.path.join(output_directory, f'{num_scenes_in_dir}_Scene_RGB.jpg')
+        new_nir_path = os.path.join(output_directory, f'{num_scenes_in_dir}_Scene_NIR.TIF')
 
        # Save the downsampled images
         cv2.imwrite(new_jpg_path, np.array(downsampled_images['jpg']))
@@ -171,16 +196,78 @@ def copy_to_target_dir():
         num_scenes_in_dir += 1
 
 
+def process_kaggle_dataset():
+    dataset_dir = r'D:\MRc\FIIT\DP_Model\Datasets\RGB,NIR - kaggle'
+
+    num_scenes_in_dir = count_existing_scenes(output_directory)
+
+   # Iterate over the four main folders
+    for main_folder in os.listdir(dataset_dir):
+        main_folder_path = os.path.join(dataset_dir, main_folder)
+        if not os.path.isdir(main_folder_path):
+            continue
+        
+        # Iterate over subfolders inside the main folder
+        subfolders = [f for f in os.listdir(main_folder_path) if os.path.isdir(os.path.join(main_folder_path, f))]
+        for subfolder in subfolders:
+            subfolder_path = os.path.join(main_folder_path, subfolder)
+            print(subfolder_path)
+
+            subsubfolders = [f for f in os.listdir(subfolder_path) if os.path.isdir(os.path.join(subfolder_path, f))]
+            for subsubfolder in subsubfolders:
+                subsubfolder_path = os.path.join(subfolder_path, subsubfolder)
+                print(subsubfolder_path)
+
+                nir_path = os.path.join(subsubfolder_path,"NIR")
+                rgb_path = os.path.join(subsubfolder_path,"RGB")
+
+            
+                if os.path.exists(rgb_path) and os.path.exists(nir_path):
+                    rgb_images = sorted(os.listdir(rgb_path))
+                    nir_images = sorted(os.listdir(nir_path))
+                
+                # Copy image pairs
+                for img_name in rgb_images:
+                    if img_name in nir_images:  # Ensure both exist
+                        src_rgb = os.path.join(rgb_path, img_name)
+                        src_nir = os.path.join(nir_path, img_name)
+                        
+                        # Define new names
+                        new_rgb_name = f"{num_scenes_in_dir}_Scene_RGB.jpg"
+                        new_nir_name = f"{num_scenes_in_dir}_Scene_NIR.TIF"
+
+                        # Read the JPG and NIR images
+                        jpg_image = cv2.imread(src_rgb)
+                        nir_image = cv2.imread(src_nir, cv2.IMREAD_UNCHANGED)  # Read TIF as is
+
+                        if not check_alignment(jpg_image, nir_image):
+                            print(f"Images {img_name} are not aligned. Skipping...")
+                            continue
+
+                    # Downsample the images
+                        downsampled_images = downsample_images({
+                            'rgb': jpg_image,
+                            'nir': nir_image
+                        })
+
+                        downsampled_images['jpg'] = asarray(downsampled_images['jpg'])
+                        downsampled_images['nir'] = asarray(downsampled_images['nir'])
+
+                        
+                        # Save the downsampled images
+                        cv2.imwrite(os.path.join(output_directory, new_rgb_name), np.array(downsampled_images['jpg']))
+                        cv2.imwrite(os.path.join(output_directory, new_nir_name), np.array(downsampled_images['nir']))
+                        num_scenes_in_dir += 1
+
 
 def process_all_subdirectories_kazachstan(base_directory):
     # Define the target directory
-    target_directory = 'D:\MRc\FIIT\DP_Model\pix2pixWin\dataset'
     
-    num_scenes_in_dir = count_existing_scenes(target_directory)
+    num_scenes_in_dir = count_existing_scenes(output_directory)
 
     # Create the target directory if it doesn't exist
-    if not os.path.exists(target_directory):
-        os.makedirs(target_directory)
+    if not os.path.exists(output_directory):
+        os.makedirs(output_directory)
     
     # Walk through all subdirectories
     for root, dirs, files in os.walk(base_directory):
@@ -205,8 +292,8 @@ def process_all_subdirectories_kazachstan(base_directory):
                     new_nir_name = f"{num_scenes_in_dir}_Scene_NIR.TIF"
                     
                     # Define the new paths in the target directory
-                    new_jpg_path = os.path.join(target_directory, new_jpg_name)
-                    new_nir_path = os.path.join(target_directory, new_nir_name)
+                    new_jpg_path = os.path.join(output_directory, new_jpg_name)
+                    new_nir_path = os.path.join(output_directory, new_nir_name)
                     
                     # Read the JPG and NIR images
                     jpg_image = cv2.imread(jpg_path)
@@ -236,11 +323,10 @@ def process_all_subdirectories_kazachstan(base_directory):
 flight_session = r'D:/MRc/FIIT/DP_Model/Datasets/kazachstan_multispectral_UAV/filght_session_02/2022-06-09'
 rgb_nir_to_split = r'D:\MRc\FIIT\DP_Model\Datasets\RGB-NIR-dataset\nirscene0\jpg1'
 
-output_directory = r'D:\MRc\FIIT\DP_Model\pix2pixWin\dataset'
-#output_directory = r'D:\MRc\FIIT\DP_Model\Datasets\RGB-NIR-dataset\nirscene0\Splitted'
 
 
 # Process all subdirectories
-process_all_subdirectories_kazachstan(flight_session)
-split_and_save_images(rgb_nir_to_split, output_directory)
-copy_to_target_dir()
+#process_all_subdirectories_kazachstan(flight_session)
+#split_and_save_images(rgb_nir_to_split)
+#copy_multispectral_potato_images_to_target_dir()
+process_kaggle_dataset()

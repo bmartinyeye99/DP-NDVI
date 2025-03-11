@@ -16,8 +16,8 @@ class Trainer:
         self.model.to(self.device)
         
         self.optimizer = optim.Adam(model.parameters(), lr=lr)
-        self.criterion = nn.L1Loss()
-        # self.criterion = nn.MSELoss()
+        # self.criterion = nn.L1Loss()
+        self.criterion = nn.MSELoss()
 
         self.train_loss_history = []
         self.val_loss_history = []
@@ -54,32 +54,15 @@ class Trainer:
             current_epoch_count = len(self.train_loss_history)
             epochs = list(range(1, current_epoch_count + 1))
 
-            #     for inputs, targets in zip(batch_patches, batch_targets):
-            #         inputs, targets = inputs.to(self.device), targets.to(self.device)
-            #         self.optimizer.zero_grad()
-            #         outputs = self.model(inputs)
-            #         loss = self.criterion(outputs, targets)
-            #         loss.backward()
-            #         self.optimizer.step()
-            #         total_loss += loss.item()
-            
-            # avg_train_loss = total_loss / len(self.datamodule.train_dataset)
-            # avg_val_loss = self._compute_validation_loss()
-            
-            # # Append history
-            # self.train_loss_history.append(avg_train_loss)
-            # self.val_loss_history.append(avg_val_loss)
-            
-            # Log scalar metrics to wandb
-            wandb.log({"epoch": epoch+1, "train_loss": avg_train_loss, "val_loss": avg_val_loss})
+            wandb.log({"epoch": epoch+1, "avg train_loss": avg_train_loss, "avg val_loss": avg_val_loss})
             
             # Log regression plot
             plot_regression(
                 self.model,
                 self.datamodule.val_dataloader,
-                image_size=256,
-                patch_size=64,
-                stride=32,
+                image_size=self.datamodule.image_size,
+                patch_size=self.datamodule.patch_size,
+                stride=self.datamodule.stride,
                 epoch=epoch
             )
             
@@ -99,9 +82,6 @@ class Trainer:
         
             mse = mean_squared_error(gt_ndvi,pred_ndvi)
             mae = mean_absolute_error(gt_ndvi,pred_ndvi)
-            # Calculate R-squared: handle case where variance is zero
-            # variance = np.mean((gt_ndvi - np.mean(gt_ndvi)) ** 2)
-            # r2 = 1 - (np.sum((gt_ndvi - pred_ndvi) ** 2) / variance) if variance != 0 else float('nan')
             r2 = r2_score(gt_ndvi, pred_ndvi)
             
             # Log additional metrics to wandb
@@ -127,17 +107,7 @@ class Trainer:
 
         avg_val_loss = total_val_loss / total_val_patches
         return avg_val_loss
-        # self.model.eval()
-        # total_val_loss = 0
-        # with torch.no_grad():
-        #     for batch_patches, batch_targets in self.datamodule.val_dataloader:
-        #         for inputs, targets in zip(batch_patches, batch_targets):
-        #             inputs, targets = inputs.to(self.device), targets.to(self.device)
-        #             outputs = self.model(inputs)
-        #             loss = self.criterion(outputs, targets)
-        #             total_val_loss += loss.item()
-        # avg_val_loss = total_val_loss / len(self.datamodule.val_dataset)
-        # return avg_val_loss
+
     
     def validation(self):
         """

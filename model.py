@@ -29,14 +29,17 @@ import matplotlib.pyplot as plt
 #         Output: [64, 64]
 # CNN model
 class NDVICNN(nn.Module):
-    def __init__(self, in_channels):
+    def __init__(self, in_channels,dropout_rate=0.65):
         super(NDVICNN, self).__init__()
         self.conv1 = nn.Conv2d(in_channels, 32, kernel_size=3, stride=1, padding=1)
+        self.dropout1 = nn.Dropout2d(dropout_rate)  # Dropout after conv1
         self.conv2 = nn.Conv2d(32, 64, kernel_size=3, stride=1, padding=1)
+        self.dropout2 = nn.Dropout2d(dropout_rate)  # Dropout after conv2
         self.conv3 = nn.Conv2d(64, 1, kernel_size=3, stride=1, padding=1)
         self.relu = nn.ReLU()
         #  constrain the output
         self.output_activation = nn.Tanh()
+        
     def forward(self, x):
         x = self.relu(self.conv1(x))
         x = self.relu(self.conv2(x))
