@@ -29,7 +29,7 @@ import matplotlib.pyplot as plt
 #         Output: [64, 64]
 # CNN model
 class NDVICNN(nn.Module):
-    def __init__(self, in_channels,dropout_rate=0.65):
+    def __init__(self, in_channels,dropout_rate=0.27):
         super(NDVICNN, self).__init__()
         self.conv1 = nn.Conv2d(in_channels, 32, kernel_size=3, stride=1, padding=1)
         self.dropout1 = nn.Dropout2d(dropout_rate)  # Dropout after conv1

@@ -3,30 +3,26 @@ import cv2
 from PIL import Image
 import os
 import numpy as np
-from numpy import asarray
 from skimage.metrics import structural_similarity as ssim
 
-output_directory = r'D:\MRc\FIIT\DP_Model\pix2pixWin\dataset2'
+output_directory = r'D:\MRc\FIIT\DP_Model\pix2pixWin\dataset'
 
 def check_alignment(rgb_image, nir_image):
     """
     Checks if the RGB and NIR images are aligned using SSIM.
     """
-    # Convert RGB image to grayscale
     rgb_gray = cv2.cvtColor(rgb_image, cv2.COLOR_BGR2GRAY)
+    nir_gray = nir_image  # NIR is already grayscale
     
-    # Resize NIR image to match RGB image dimensions
-    height, width = rgb_gray.shape[:2]
-    nir_resized = cv2.resize(nir_image, (width, height), interpolation=cv2.INTER_LINEAR)
+    height, width = rgb_gray.shape[:2]  # Vyberte cieľové rozmery (napr. z im1)
+    im2_resized = cv2.resize(nir_gray, (width, height), interpolation=cv2.INTER_LINEAR)
     
-    try:
-        score, _ = ssim(rgb_gray, nir_resized, full=True)
-    except :
-        print("Can't be divided by zero!")
-        return False
-
-    if score > 100:
-        return True  # Threshold for alignment
+    print(im2_resized.shape, rgb_gray.shape)
+    # Compute SSIM between the two images
+    score, _ = ssim(rgb_gray, im2_resized, full=True)
+    if score > 0.100:  # Threshold for alignment
+        return True
+    else: return False
 
 
 # Get the number of existing scenes in the output directories
@@ -235,24 +231,16 @@ def process_kaggle_dataset():
                         # Define new names
                         new_rgb_name = f"{num_scenes_in_dir}_Scene_RGB.jpg"
                         new_nir_name = f"{num_scenes_in_dir}_Scene_NIR.TIF"
-
-                        # Read the JPG and NIR images
+                        
+                            # Read the JPG and NIR images
                         jpg_image = cv2.imread(src_rgb)
                         nir_image = cv2.imread(src_nir, cv2.IMREAD_UNCHANGED)  # Read TIF as is
 
-                        if not check_alignment(jpg_image, nir_image):
-                            print(f"Images {img_name} are not aligned. Skipping...")
-                            continue
-
-                    # Downsample the images
+                        # Downsample the images
                         downsampled_images = downsample_images({
-                            'rgb': jpg_image,
+                            'jpg': jpg_image,
                             'nir': nir_image
                         })
-
-                        downsampled_images['jpg'] = asarray(downsampled_images['jpg'])
-                        downsampled_images['nir'] = asarray(downsampled_images['nir'])
-
                         
                         # Save the downsampled images
                         cv2.imwrite(os.path.join(output_directory, new_rgb_name), np.array(downsampled_images['jpg']))
@@ -320,13 +308,17 @@ def process_all_subdirectories_kazachstan(base_directory):
 
 
 # Define the flight session directory
-flight_session = r'D:/MRc/FIIT/DP_Model/Datasets/kazachstan_multispectral_UAV/filght_session_02/2022-06-09'
+flight_session =[r'D:/MRc/FIIT/DP_Model/Datasets/kazachstan_multispectral_UAV/filght_session_02/2022-06-08',
+                 r'D:\MRc\FIIT\DP_Model\Datasets\kazachstan_multispectral_UAV\filght_session_02\2022-06-09',
+                 r'D:\MRc\FIIT\DP_Model\Datasets\kazachstan_multispectral_UAV\flight_session_01\2022-05-17',
+                 r'D:\MRc\FIIT\DP_Model\Datasets\kazachstan_multispectral_UAV\flight_session_01\2022-05-18']
+
 rgb_nir_to_split = r'D:\MRc\FIIT\DP_Model\Datasets\RGB-NIR-dataset\nirscene0\jpg1'
 
-
+for i in flight_session:
+    process_all_subdirectories_kazachstan(i)
 
 # Process all subdirectories
-#process_all_subdirectories_kazachstan(flight_session)
 #split_and_save_images(rgb_nir_to_split)
 #copy_multispectral_potato_images_to_target_dir()
-process_kaggle_dataset()
+#process_kaggle_dataset()

@@ -4,7 +4,7 @@ import numpy as np
 import torch
 import torch.nn 
 import torch.nn.functional 
-from torch.utils.data import Dataset, DataLoader, random_split
+from torch.utils.data import Dataset, DataLoader, Subset
 from utils import *
 from PIL import Image
 import torchvision.transforms.functional as TF
@@ -48,7 +48,7 @@ class NDVIDataset(Dataset):
     # Initialize color jitter augmentation for RGB only.
         if self.augment:
             self.color_jitter = transforms.ColorJitter(
-                brightness=0.22, contrast=0.22, saturation=0.22, hue=0.45
+                brightness=0.22, contrast=0.22, saturation=0.22, hue=0.22
             )
 
 
@@ -60,7 +60,7 @@ class NDVIDataset(Dataset):
         rgb_path = os.path.join(self.dataset_dir, self.rgb_files[idx])
         nir_path = os.path.join(self.dataset_dir, self.nir_files[idx])
 
-        print(f"RGB file : {rgb_path} NIR file :{nir_path}")
+        #print(f"RGB file : {rgb_path} NIR file :{nir_path}")
 
         if rgb_path.split('_')[0] != nir_path.split('_')[0]:
             raise ValueError (f"Mismatch between scene images RGB {len(rgb_path)}  NIR  {len(nir_path)}")
@@ -68,9 +68,7 @@ class NDVIDataset(Dataset):
         rgb_bgr = cv2.imread(rgb_path, cv2.IMREAD_COLOR)
         nir_img = cv2.imread(nir_path, cv2.IMREAD_GRAYSCALE)
 
-        # if check_alignment(rgb_bgr,nir_img)!= True:
-        #     raise ValueError(f"iMAGES not aligned {idx}")
-
+        
         if rgb_bgr is None or nir_img is None:
             raise ValueError(f"Failed to load images for index {idx}")
         
@@ -82,7 +80,7 @@ class NDVIDataset(Dataset):
         rgb = cv2.cvtColor(rgb_bgr, cv2.COLOR_BGR2RGB).astype(np.float32) / 255.0
         nir = nir_img.astype(np.float32) / 255.0
 
-        # # Add Gaussian noise
+        # Add Gaussian noise
         # if self.noise_std > 0:
         #     rgb = add_gaussian_noise(rgb, std=self.noise_std)
         #     nir = add_gaussian_noise(nir, std=self.noise_std)
@@ -173,27 +171,64 @@ class DataModule:
         self.batch_size = batch_size
         self.noise_std = noise_std
 
-        # Load the full dataset
-        self.dataset = NDVIDataset(
+        # Create a base dataset without augmentation to get the deterministic ordering.
+        base_dataset = NDVIDataset(
             dataset_dir, 
             image_size, 
             patch_size, 
             stride, 
-            augment=True, 
+            augment=False,  # No augmentation here
             noise_std=noise_std
         )
         
-        # Split the dataset into training, validation, and test sets
-        train_size = int(0.7 * len(self.dataset))  # 70% for training
-        val_size = int(0.15 * len(self.dataset))   # 15% for validation
-        test_size = len(self.dataset) - train_size - val_size  # Remaining 15% for testing
+        # Get all indices and shuffle them for a random split
+        all_indices = np.arange(len(base_dataset))
+        np.random.shuffle(all_indices)
         
-        # Perform the split
-        self.train_dataset, self.val_dataset, self.test_dataset = random_split(
-            self.dataset, [train_size, val_size, test_size]
+        # Calculate split sizes
+        train_size = int(0.7 * len(base_dataset))
+        val_size = int(0.15 * len(base_dataset))
+        test_size = len(base_dataset) - train_size - val_size
+        
+        # Split indices for training, validation, and test sets
+        train_indices = all_indices[:train_size].tolist()
+        val_indices = all_indices[train_size:train_size+val_size].tolist()
+        test_indices = all_indices[train_size+val_size:].tolist()
+        
+        # Now, create separate dataset instances:
+        # - Training dataset with augmentation enabled.
+        # - Validation and test datasets with augmentation disabled.
+        train_dataset_full = NDVIDataset(
+            dataset_dir, 
+            image_size, 
+            patch_size, 
+            stride, 
+            augment=True,   # Augment training data
+            noise_std=noise_std
+        )
+        val_dataset_full = NDVIDataset(
+            dataset_dir, 
+            image_size, 
+            patch_size, 
+            stride, 
+            augment=False,  # No augmentation for validation
+            noise_std=noise_std
+        )
+        test_dataset_full = NDVIDataset(
+            dataset_dir, 
+            image_size, 
+            patch_size, 
+            stride, 
+            augment=False,  # No augmentation for testing
+            noise_std=noise_std
         )
         
-        # Create DataLoaders for each set
+        # Use Subset to ensure that each image appears only in one split
+        self.train_dataset = Subset(train_dataset_full, train_indices)
+        self.val_dataset = Subset(val_dataset_full, val_indices)
+        self.test_dataset = Subset(test_dataset_full, test_indices)
+        
+        # Create DataLoaders for each dataset
         self.train_dataloader = DataLoader(self.train_dataset, batch_size=self.batch_size, shuffle=True, num_workers=2)
-        self.val_dataloader = DataLoader(self.val_dataset, batch_size=self.batch_size, shuffle=False, num_workers=2)
-        self.test_dataloader = DataLoader(self.test_dataset, batch_size=self.batch_size, shuffle=False, num_workers=2)
+        self.val_dataloader = DataLoader(self.val_dataset, batch_size=self.batch_size, shuffle=True, num_workers=2)
+        self.test_dataloader = DataLoader(self.test_dataset, batch_size=self.batch_size, shuffle=True, num_workers=2)
