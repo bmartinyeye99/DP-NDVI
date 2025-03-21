@@ -7,56 +7,54 @@ import wandb
 import numpy as np
 from sklearn.metrics import mean_absolute_error,mean_squared_error,r2_score
 
-
 class Trainer:
     def __init__(self, model, datamodule, lr=1e-3):
         self.model = model
         self.datamodule = datamodule  
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.model.to(self.device)
-        
         self.optimizer = optim.Adam(model.parameters(), lr=lr)
+        self.criterion = nn.HuberLoss()
+
+        #self.criterion = nn.MSELoss()
         # self.criterion = nn.L1Loss()
-        self.criterion = nn.MSELoss()
 
         self.train_loss_history = []
         self.val_loss_history = []
-        wandb.init(project="ndvi-prediction", config={"lr": lr})
+        wandb.init(project="ndvi-prediction ", config={"lr": lr})
     
     def train(self, num_epochs=5):
         self.model.train()
         for epoch in range(num_epochs):
             total_loss = 0
-            total_patches = 0  # Count patches
+            total_patches = 0
             for batch_patches, batch_targets in self.datamodule.train_dataloader:
-                    # batch_patches and batch_targets are lists of patches for each image in the batch
-                for inputs, targets in zip(batch_patches, batch_targets):
-                    inputs, targets = inputs.to(self.device), targets.to(self.device)
-                    self.optimizer.zero_grad()
-                    outputs = self.model(inputs)
-                    if torch.any(outputs > 1) or torch.any(outputs < -1):
-                        invalid_values = outputs[(outputs > 1) | (outputs < -1)]
-                        raise ValueError(f"Outputs contains invalid values: {invalid_values}")
-
-                    loss = self.criterion(outputs, targets)
-                    loss.backward()
-                    self.optimizer.step()
-
-                    total_loss += loss.item()
-                    total_patches += 1
+                # --- Batching Patches Improvement ---
+                # Instead of looping over each image’s patches individually,
+                # concatenate all patches from the batch into one large mini-batch.
+                # For instance, if batch_patches is a list of tensors each with shape [n_patches, C, H, W],
+                # we combine them along dimension 0.
+                inputs = batch_patches.flatten(0, 1).to(self.device)
+                targets = batch_targets.flatten(0, 1).to(self.device)
+                self.optimizer.zero_grad()
+                outputs = self.model(inputs)
+                if torch.any(outputs > 1) or torch.any(outputs < -1):
+                    invalid_values = outputs[(outputs > 1) | (outputs < -1)]
+                    raise ValueError(f"Outputs contains invalid values: {invalid_values}")
+                loss = self.criterion(outputs, targets)
+                loss.backward()
+                self.optimizer.step()
+                
+                total_loss += loss.item() * inputs.size(0)
+                total_patches += inputs.size(0)
 
             avg_train_loss = total_loss / total_patches
-
             avg_val_loss = self._compute_validation_loss()
             self.train_loss_history.append(avg_train_loss)
             self.val_loss_history.append(avg_val_loss)
-
-            current_epoch_count = len(self.train_loss_history)
-            epochs = list(range(1, current_epoch_count + 1))
-
             wandb.log({"epoch": epoch+1, "avg train_loss": avg_train_loss, "avg val_loss": avg_val_loss})
             
-            # Log regression plot
+            # Log regression plot and loss plot (existing plotting code)
             plot_regression(
                 self.model,
                 self.datamodule.val_dataloader,
@@ -65,61 +63,51 @@ class Trainer:
                 stride=self.datamodule.stride,
                 epoch=epoch
             )
-            
-            # Create and log a loss plot for the current epoch
+            epochs_list = list(range(1, len(self.train_loss_history)+1))
             fig, ax = plt.subplots(figsize=(8, 6))
-            ax.plot(epochs, self.train_loss_history, label="Train Loss", marker="o")
-            ax.plot(epochs, self.val_loss_history, label="Validation Loss", marker="o")
+            ax.plot(epochs_list, self.train_loss_history, label="Train Loss", marker="o")
+            ax.plot(epochs_list, self.val_loss_history, label="Validation Loss", marker="o")
             ax.set_xlabel("Epoch")
             ax.set_ylabel("Loss")
             ax.set_title("Loss vs. Epoch")
             ax.legend()
             plt.show()
+            
             wandb.log({"loss_plot": wandb.Image(fig)})
             plt.close(fig)
             
-            gt_ndvi, pred_ndvi = self.validation()  # Get ground truth and predictions from validation data
-        
-            mse = mean_squared_error(gt_ndvi,pred_ndvi)
-            mae = mean_absolute_error(gt_ndvi,pred_ndvi)
+            gt_ndvi, pred_ndvi = self.validation()
+            mse = ((gt_ndvi - pred_ndvi)**2).mean()
+            mae = (np.abs(gt_ndvi - pred_ndvi)).mean()
             r2 = r2_score(gt_ndvi, pred_ndvi)
-            
-            # Log additional metrics to wandb
+            # For simplicity, using MSE and MAE here.
             wandb.log({"val_mse": mse, "val_mae": mae, "val_r2": r2})
+            print(f"Epoch {epoch+1}/{num_epochs}, Train Loss: {avg_train_loss:.4f}, Val Loss: {avg_val_loss:.4f}, R2: {r2}")
             
-            # Print metrics to console
-            print(f"Epoch {epoch+1}/{num_epochs}, Train Loss: {avg_train_loss:.4f}, Val Loss: {avg_val_loss:.4f}")
-            print(f"Validation Metrics - MSE: {mse:.4f}, MAE: {mae:.4f}, R²: {r2:.4f}")
-    
     def _compute_validation_loss(self):
         self.model.eval()
         total_val_loss = 0.0
         total_val_patches = 0
-
         with torch.no_grad():
             for batch_patches, batch_targets in self.datamodule.val_dataloader:
-                for inputs, targets in zip(batch_patches, batch_targets):
-                    inputs, targets = inputs.to(self.device), targets.to(self.device)
-                    outputs = self.model(inputs)
-                    loss = self.criterion(outputs, targets)
-                    total_val_loss += loss.item()
-                    total_val_patches += 1
+                # Flatten batch and patch dimensions: [B, n_patches, ...] -> [B*n_patches, ...]
+                inputs = batch_patches.flatten(0, 1).to(self.device)
+                targets = batch_targets.flatten(0, 1).to(self.device)
+                outputs = self.model(inputs)
+                loss = self.criterion(outputs, targets)
+                total_val_loss += loss.item() * inputs.size(0)
+                total_val_patches += inputs.size(0)
+        self.model.train()
+        return total_val_loss / total_val_patches
 
-        avg_val_loss = total_val_loss / total_val_patches
-        return avg_val_loss
-
-    
     def validation(self):
-        """
-        Evaluate the model on the validation set and return ground truth NDVI and predicted NDVI values.
-        """
         self.model.eval()
         preds, targets = [], []
         with torch.no_grad():
             for batch_patches, batch_targets in self.datamodule.val_dataloader:
-                for inputs, targets_batch in zip(batch_patches, batch_targets):
-                    inputs = inputs.to(self.device)
-                    pred = self.model(inputs).cpu().numpy().flatten()
-                    preds.extend(pred)
-                    targets.extend(targets_batch.numpy().flatten())
+                inputs = batch_patches.flatten(0, 1).to(self.device)
+                outputs = self.model(inputs).cpu().numpy()
+                preds.extend(outputs.flatten())
+                targets.extend(batch_targets.flatten(0, 1).cpu().numpy().flatten())
+        self.model.train()
         return np.array(targets), np.array(preds)

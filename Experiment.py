@@ -8,7 +8,7 @@ from dataset import DataModule
 
 class Experiment:
     def __init__(self, dataset_dir, image_size=256, patch_size=64, stride=32, 
-                 batch_size=8, num_epochs=4, lr=1e-3,noise_std=0.0):
+                 batch_size=16, num_epochs=4, lr=1e-3,noise_std=0.0):
         self.dataset_dir = dataset_dir
         self.image_size = image_size
         self.patch_size = patch_size
